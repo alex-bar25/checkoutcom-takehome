@@ -142,6 +142,8 @@ public class PaymentsControllerTests : IClassFixture<WebApplicationFactory<Progr
     [InlineData("""{"cardNumber":"2222405343248877","expiryMonth":4,"expiryYear":2099,"currency":"GBP","amount":10.5,"cvv":"123"}""", "amount")]
     [InlineData("""{"cardNumber":"2222405343248877","expiryMonth":"April","expiryYear":2099,"currency":"GBP","amount":1050,"cvv":"123"}""", "expiryMonth")]
     [InlineData("""{"cardNumber":2222405343248877,"expiryMonth":4,"expiryYear":2099,"currency":"GBP","amount":1050,"cvv":"123"}""", "cardNumber")]
+    [InlineData("""{"cardNumber":"2222405343248877","expiryMonth":4,"expiryYear":2099,"currency":"GBP","amount":"1050","cvv":"123"}""", "amount")]
+    [InlineData("""{"cardNumber":"2222405343248877","expiryMonth":"4","expiryYear":2099,"currency":"GBP","amount":1050,"cvv":"123"}""", "expiryMonth")]
     [InlineData("", "request")]
     [InlineData("not json", "request")]
     public async Task RejectsMalformedPaymentWithoutCallingBank(string json, string expectedErrorField)

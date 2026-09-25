@@ -22,6 +22,7 @@ builder.Services.AddControllers()
     {
         options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
         options.JsonSerializerOptions.DictionaryKeyPolicy = JsonNamingPolicy.CamelCase;
+        options.JsonSerializerOptions.NumberHandling = JsonNumberHandling.Strict;
     })
     .ConfigureApiBehaviorOptions(options => options.InvalidModelStateResponseFactory = context =>
         new UnprocessableEntityObjectResult(RejectedPaymentResponse.FromModelState(context.ModelState)));

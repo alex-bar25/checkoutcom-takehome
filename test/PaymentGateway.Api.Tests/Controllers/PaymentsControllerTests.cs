@@ -240,6 +240,65 @@ public class PaymentsControllerTests : IClassFixture<WebApplicationFactory<Progr
         Assert.True(retrieved.Headers.CacheControl?.NoStore);
     }
 
+    [Fact]
+    public async Task ReplaysPaymentForRepeatedIdempotencyKey()
+    {
+        // Arrange
+        BankResponds(authorized: true);
+        var client = CreateClient();
+
+        // Act
+        var first = await PostPaymentAsync(client, ValidRequest(), "order-1234");
+        var replayed = await PostPaymentAsync(client, ValidRequest(), "order-1234");
+
+        // Assert
+        Assert.Equal(HttpStatusCode.Created, first.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, replayed.StatusCode);
+        var firstId = (await first.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetGuid();
+        var replayedId = (await replayed.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetGuid();
+        Assert.Equal(firstId, replayedId);
+        await _bankClient.ReceivedWithAnyArgs(1).AuthorizeAsync(default!, default);
+    }
+
+    [Fact]
+    public async Task RejectsIdempotencyKeyReusedForDifferentPayment()
+    {
+        // Arrange
+        BankResponds(authorized: true);
+        var client = CreateClient();
+        await PostPaymentAsync(client, ValidRequest(), "order-1234");
+
+        // Act
+        var response = await PostPaymentAsync(client, ValidRequest(currency: "USD"), "order-1234");
+
+        // Assert
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+        await _bankClient.ReceivedWithAnyArgs(1).AuthorizeAsync(default!, default);
+    }
+
+    [Fact]
+    public async Task RejectsOverlongIdempotencyKey()
+    {
+        // Arrange
+        var client = CreateClient();
+
+        // Act
+        var response = await PostPaymentAsync(client, ValidRequest(), new string('k', 256));
+
+        // Assert
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        await _bankClient.DidNotReceiveWithAnyArgs().AuthorizeAsync(default!, default);
+    }
+
+    private static Task<HttpResponseMessage> PostPaymentAsync(HttpClient client, object body, string idempotencyKey)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, "/api/payments") { Content = JsonContent.Create(body) };
+        request.Headers.Add("Idempotency-Key", idempotencyKey);
+
+        return client.SendAsync(request);
+    }
+
     private static int NextYear => DateTime.UtcNow.Year + 1;
 
     private static object ValidRequest(string cardNumber = CardNumber, string currency = "GBP") => new

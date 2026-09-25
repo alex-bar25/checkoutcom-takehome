@@ -11,7 +11,7 @@ public class PaymentsRepositoryTests
     [Fact]
     public void ReturnsAddedPayment()
     {
-        var payment = new Payment(Guid.NewGuid(), PaymentStatus.Declined, "8877", 4, 2030, "USD", 100);
+        var payment = new Payment(Guid.NewGuid(), PaymentStatus.Declined, "8877", 4, 2030, "USD", 100, null);
 
         _repository.Add(payment);
 

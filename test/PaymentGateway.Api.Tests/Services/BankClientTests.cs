@@ -1,17 +1,19 @@
 using System.Net;
-using System.Text.Json;
 
 using Microsoft.Extensions.Logging.Abstractions;
 
 using PaymentGateway.Api.Exceptions;
 using PaymentGateway.Api.Models.Requests;
 using PaymentGateway.Api.Services;
-using PaymentGateway.Api.Tests.Support;
+
+using RichardSzalay.MockHttp;
 
 namespace PaymentGateway.Api.Tests.Services;
 
 public class BankClientTests
 {
+    private const string BankUrl = "http://bank.test/payments";
+
     private static readonly BankPaymentRequest Request = new()
     {
         CardNumber = "2222405343248877",
@@ -21,35 +23,30 @@ public class BankClientTests
         Cvv = "123"
     };
 
-    private static BankClient CreateClient(HttpMessageHandler handler) =>
-        new(new HttpClient(handler) { BaseAddress = new Uri("http://bank.test") }, NullLogger<BankClient>.Instance);
+    private readonly MockHttpMessageHandler _bank = new();
+
+    private BankClient CreateClient() =>
+        new(new HttpClient(_bank) { BaseAddress = new Uri("http://bank.test") }, NullLogger<BankClient>.Instance);
 
     [Fact]
     public async Task SendsPaymentInTheBankFormat()
     {
-        var handler = StubHttpMessageHandler.Returning(HttpStatusCode.OK, """{"authorized":true,"authorization_code":"abc"}""");
+        _bank.Expect(HttpMethod.Post, BankUrl)
+            .WithContent("""{"card_number":"2222405343248877","expiry_date":"04/2027","currency":"GBP","amount":100,"cvv":"123"}""")
+            .Respond("application/json", """{"authorized":true,"authorization_code":"abc"}""");
 
-        await CreateClient(handler).AuthorizeAsync(Request, CancellationToken.None);
+        await CreateClient().AuthorizeAsync(Request, CancellationToken.None);
 
-        var sent = Assert.Single(handler.Requests);
-        Assert.Equal(HttpMethod.Post, sent.Method);
-        Assert.Equal("http://bank.test/payments", sent.Uri?.ToString());
-
-        using var body = JsonDocument.Parse(sent.Body!);
-        Assert.Equal("2222405343248877", body.RootElement.GetProperty("card_number").GetString());
-        Assert.Equal("04/2027", body.RootElement.GetProperty("expiry_date").GetString());
-        Assert.Equal("GBP", body.RootElement.GetProperty("currency").GetString());
-        Assert.Equal(100, body.RootElement.GetProperty("amount").GetInt32());
-        Assert.Equal("123", body.RootElement.GetProperty("cvv").GetString());
+        _bank.VerifyNoOutstandingExpectation();
     }
 
     [Fact]
     public async Task ReturnsAuthorizedResultWithAuthorizationCode()
     {
-        var handler = StubHttpMessageHandler.Returning(HttpStatusCode.OK,
-            """{"authorized":true,"authorization_code":"0bb07405-6d44-4b50-a14f-7ae0beff13ad"}""");
+        _bank.When(HttpMethod.Post, BankUrl)
+            .Respond("application/json", """{"authorized":true,"authorization_code":"0bb07405-6d44-4b50-a14f-7ae0beff13ad"}""");
 
-        var result = await CreateClient(handler).AuthorizeAsync(Request, CancellationToken.None);
+        var result = await CreateClient().AuthorizeAsync(Request, CancellationToken.None);
 
         Assert.True(result.Authorized);
         Assert.Equal("0bb07405-6d44-4b50-a14f-7ae0beff13ad", result.AuthorizationCode);
@@ -58,9 +55,9 @@ public class BankClientTests
     [Fact]
     public async Task ReturnsDeclinedResult()
     {
-        var handler = StubHttpMessageHandler.Returning(HttpStatusCode.OK, """{"authorized":false,"authorization_code":""}""");
+        _bank.When(HttpMethod.Post, BankUrl).Respond("application/json", """{"authorized":false,"authorization_code":""}""");
 
-        var result = await CreateClient(handler).AuthorizeAsync(Request, CancellationToken.None);
+        var result = await CreateClient().AuthorizeAsync(Request, CancellationToken.None);
 
         Assert.False(result.Authorized);
     }
@@ -69,40 +66,61 @@ public class BankClientTests
     [InlineData(HttpStatusCode.ServiceUnavailable)]
     [InlineData(HttpStatusCode.BadRequest)]
     [InlineData(HttpStatusCode.InternalServerError)]
-    public async Task ThrowsWhenBankRespondsWithError(HttpStatusCode statusCode)
+    public async Task ThrowsNotProcessedWhenBankRespondsWithError(HttpStatusCode statusCode)
     {
-        var handler = StubHttpMessageHandler.Returning(statusCode, "{}");
+        _bank.When(HttpMethod.Post, BankUrl).Respond(statusCode, "application/json", "{}");
 
-        await Assert.ThrowsAsync<AcquiringBankException>(() => CreateClient(handler).AuthorizeAsync(Request, CancellationToken.None));
+        var exception = await Assert.ThrowsAsync<AcquiringBankException>(() => CreateClient().AuthorizeAsync(Request, CancellationToken.None));
+        Assert.False(exception.OutcomeUnknown);
     }
 
     [Theory]
     [InlineData("")]
     [InlineData("not json")]
     [InlineData("""{"authorization_code":"abc"}""")]
-    public async Task ThrowsWhenBankResponseIsMalformed(string json)
+    public async Task ThrowsOutcomeUnknownWhenBankResponseIsMalformed(string json)
     {
-        var handler = StubHttpMessageHandler.Returning(HttpStatusCode.OK, json);
+        _bank.When(HttpMethod.Post, BankUrl).Respond("application/json", json);
 
-        await Assert.ThrowsAsync<AcquiringBankException>(() => CreateClient(handler).AuthorizeAsync(Request, CancellationToken.None));
+        var exception = await Assert.ThrowsAsync<AcquiringBankException>(() => CreateClient().AuthorizeAsync(Request, CancellationToken.None));
+        Assert.True(exception.OutcomeUnknown);
     }
 
     [Fact]
-    public async Task ThrowsWhenBankIsUnreachable()
+    public async Task ThrowsNotProcessedWhenBankIsUnreachable()
     {
-        var handler = new StubHttpMessageHandler(_ => throw new HttpRequestException("Connection refused"));
+        _bank.When(HttpMethod.Post, BankUrl).Throw(new HttpRequestException(HttpRequestError.ConnectionError, "Connection refused"));
 
-        var exception = await Assert.ThrowsAsync<AcquiringBankException>(() => CreateClient(handler).AuthorizeAsync(Request, CancellationToken.None));
+        var exception = await Assert.ThrowsAsync<AcquiringBankException>(() => CreateClient().AuthorizeAsync(Request, CancellationToken.None));
+        Assert.False(exception.OutcomeUnknown);
         Assert.IsType<HttpRequestException>(exception.InnerException);
+    }
+
+    [Fact]
+    public async Task ThrowsOutcomeUnknownWhenConnectionDropsAfterRequestIsSent()
+    {
+        _bank.When(HttpMethod.Post, BankUrl).Throw(new HttpRequestException(HttpRequestError.ResponseEnded, "Response ended prematurely"));
+
+        var exception = await Assert.ThrowsAsync<AcquiringBankException>(() => CreateClient().AuthorizeAsync(Request, CancellationToken.None));
+        Assert.True(exception.OutcomeUnknown);
+    }
+
+    [Fact]
+    public async Task ThrowsOutcomeUnknownWhenBankTimesOut()
+    {
+        _bank.When(HttpMethod.Post, BankUrl).Throw(new TaskCanceledException("The request timed out"));
+
+        var exception = await Assert.ThrowsAsync<AcquiringBankException>(() => CreateClient().AuthorizeAsync(Request, CancellationToken.None));
+        Assert.True(exception.OutcomeUnknown);
     }
 
     [Fact]
     public async Task PropagatesCallerCancellation()
     {
-        var handler = StubHttpMessageHandler.Returning(HttpStatusCode.OK, """{"authorized":true,"authorization_code":"abc"}""");
+        _bank.When(HttpMethod.Post, BankUrl).Respond("application/json", """{"authorized":true,"authorization_code":"abc"}""");
         using var cancellation = new CancellationTokenSource();
         await cancellation.CancelAsync();
 
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => CreateClient(handler).AuthorizeAsync(Request, cancellation.Token));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => CreateClient().AuthorizeAsync(Request, cancellation.Token));
     }
 }

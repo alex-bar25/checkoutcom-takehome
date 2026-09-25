@@ -5,6 +5,7 @@ using PaymentGateway.Api.Models.Requests;
 using PaymentGateway.Api.Models.Responses;
 
 using Polly;
+using Polly.Timeout;
 
 namespace PaymentGateway.Api.Services;
 
@@ -33,20 +34,29 @@ public class BankClient : IBankClient
             if (!response.IsSuccessStatusCode)
             {
                 _logger.LogWarning("Acquiring bank responded with status code {StatusCode}", (int)response.StatusCode);
-                throw new AcquiringBankException($"Acquiring bank responded with status code {(int)response.StatusCode}.");
+                throw new AcquiringBankException($"Acquiring bank responded with status code {(int)response.StatusCode}.", outcomeUnknown: false);
             }
 
             return await response.Content.ReadFromJsonAsync<BankPaymentResponse>(SerializerOptions, cancellationToken)
-                ?? throw new AcquiringBankException("Acquiring bank returned an empty response.");
+                ?? throw new AcquiringBankException("Acquiring bank returned an empty response.", outcomeUnknown: true);
         }
         catch (Exception exception) when (IsBankFailure(exception, cancellationToken))
         {
-            _logger.LogWarning(exception, "Call to acquiring bank failed");
-            throw new AcquiringBankException("Call to acquiring bank failed.", exception);
+            var outcomeUnknown = IsOutcomeUnknown(exception);
+
+            _logger.LogWarning(exception, "Call to acquiring bank failed, outcome unknown: {OutcomeUnknown}", outcomeUnknown);
+            throw new AcquiringBankException("Call to acquiring bank failed.", outcomeUnknown, exception);
         }
     }
 
     private static bool IsBankFailure(Exception exception, CancellationToken cancellationToken) =>
         exception is HttpRequestException or JsonException or ExecutionRejectedException
         || (exception is OperationCanceledException && !cancellationToken.IsCancellationRequested);
+
+    private static bool IsOutcomeUnknown(Exception exception) => exception switch
+    {
+        HttpRequestException { HttpRequestError: HttpRequestError.ConnectionError or HttpRequestError.NameResolutionError } => false,
+        ExecutionRejectedException and not TimeoutRejectedException => false,
+        _ => true
+    };
 }

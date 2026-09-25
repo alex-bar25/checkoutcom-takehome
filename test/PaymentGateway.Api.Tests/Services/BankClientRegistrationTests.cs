@@ -8,7 +8,8 @@ using PaymentGateway.Api.Configuration;
 using PaymentGateway.Api.Exceptions;
 using PaymentGateway.Api.Models.Requests;
 using PaymentGateway.Api.Services;
-using PaymentGateway.Api.Tests.Support;
+
+using RichardSzalay.MockHttp;
 
 namespace PaymentGateway.Api.Tests.Services;
 
@@ -26,30 +27,33 @@ public class BankClientRegistrationTests
     [Fact]
     public async Task DoesNotRetryPaymentWhenBankIsUnavailable()
     {
-        var handler = StubHttpMessageHandler.Returning(HttpStatusCode.ServiceUnavailable, "{}");
+        var bank = new MockHttpMessageHandler();
+        var payment = bank.When(HttpMethod.Post, "http://localhost:8080/payments").Respond(HttpStatusCode.ServiceUnavailable);
         using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
             builder.ConfigureServices(services =>
-                services.AddHttpClient<IBankClient, BankClient>().ConfigurePrimaryHttpMessageHandler(() => handler)));
+                services.AddHttpClient<IBankClient, BankClient>().ConfigurePrimaryHttpMessageHandler(() => bank)));
         var bankClient = factory.Services.GetRequiredService<IBankClient>();
 
         await Assert.ThrowsAsync<AcquiringBankException>(() => bankClient.AuthorizeAsync(Request, CancellationToken.None));
 
-        Assert.Single(handler.Requests);
+        Assert.Equal(1, bank.GetMatchCount(payment));
     }
 
     [Fact]
     public async Task UsesConfiguredBankAddress()
     {
-        var handler = StubHttpMessageHandler.Returning(HttpStatusCode.OK, """{"authorized":true,"authorization_code":"abc"}""");
+        var bank = new MockHttpMessageHandler();
+        bank.Expect(HttpMethod.Post, "http://configured-bank:9090/payments")
+            .Respond("application/json", """{"authorized":true,"authorization_code":"abc"}""");
         using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder => builder
             .UseSetting("Bank:BaseAddress", "http://configured-bank:9090")
             .ConfigureServices(services =>
-                services.AddHttpClient<IBankClient, BankClient>().ConfigurePrimaryHttpMessageHandler(() => handler)));
+                services.AddHttpClient<IBankClient, BankClient>().ConfigurePrimaryHttpMessageHandler(() => bank)));
         var bankClient = factory.Services.GetRequiredService<IBankClient>();
 
         await bankClient.AuthorizeAsync(Request, CancellationToken.None);
 
-        Assert.Equal("http://configured-bank:9090/payments", Assert.Single(handler.Requests).Uri?.ToString());
+        bank.VerifyNoOutstandingExpectation();
     }
 
     [Fact]

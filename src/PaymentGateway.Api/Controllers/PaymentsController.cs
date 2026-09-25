@@ -17,9 +17,9 @@ public class PaymentsController : ControllerBase
     }
 
     [HttpGet("{id:guid}")]
-    [ProducesResponseType<GetPaymentResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType<PaymentResponse>(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public ActionResult<GetPaymentResponse> GetPayment(Guid id)
+    public ActionResult<PaymentResponse> GetPayment(Guid id)
     {
         var payment = _paymentsRepository.Get(id);
 
@@ -28,6 +28,6 @@ public class PaymentsController : ControllerBase
             return NotFound();
         }
 
-        return GetPaymentResponse.FromPayment(payment);
+        return PaymentResponse.FromPayment(payment);
     }
 }

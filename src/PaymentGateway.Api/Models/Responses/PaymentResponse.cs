@@ -2,7 +2,7 @@ using PaymentGateway.Api.Enums;
 
 namespace PaymentGateway.Api.Models.Responses;
 
-public class GetPaymentResponse
+public class PaymentResponse
 {
     public required Guid Id { get; init; }
     public required PaymentStatus Status { get; init; }
@@ -12,7 +12,7 @@ public class GetPaymentResponse
     public required string Currency { get; init; }
     public required int Amount { get; init; }
 
-    public static GetPaymentResponse FromPayment(Payment payment) => new()
+    public static PaymentResponse FromPayment(Payment payment) => new()
     {
         Id = payment.Id,
         Status = payment.Status,

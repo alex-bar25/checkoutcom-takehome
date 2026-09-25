@@ -34,7 +34,6 @@ builder.Services.AddSwaggerGen();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<IValidator<PostPaymentRequest>, PostPaymentRequestValidator>();
 builder.Services.AddSingleton<IPaymentsRepository, PaymentsRepository>();
-builder.Services.AddSingleton<IIdempotencyStore, IdempotencyStore>();
 builder.Services.AddScoped<IPaymentService, PaymentService>();
 
 builder.Services.AddOptions<BankOptions>()

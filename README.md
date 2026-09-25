@@ -44,8 +44,6 @@ dotnet test                                       # everything, including end-to
 
 A payment response contains `id`, `status`, `cardNumberLastFour`, `expiryMonth`, `expiryYear`, `currency` and `amount`.
 
-POST also accepts an optional `Idempotency-Key` header (see below).
-
 ## Design decisions
 
 **Structure.** Controller (HTTP only) → `PaymentService` (validate, call the bank, store) → `BankClient` and `PaymentsRepository`. Folders follow the scaffold's layout. There is no mediator or mapping library; two endpoints don't need them.
@@ -57,16 +55,6 @@ POST also accepts an optional `Idempotency-Key` header (see below).
 **Bank integration.** A typed `HttpClient` with the standard .NET resilience handler for timeouts and circuit breaking. Retries are disabled for the payment POST: retrying a charge the bank may already have processed could take the shopper's money twice. The bank address and timeout come from configuration and are validated at startup.
 
 **502 vs 504.** When the bank fails, the merchant needs to know whether it is safe to retry. An error status or a refused connection means the payment definitely wasn't processed (`502`). A timeout or a connection dropped mid-response means the bank may have charged the card (`504`), so the merchant shouldn't blindly retry.
-
-**Idempotency.** Not in the brief, but I added it because a merchant retrying after a network error is the most common way a payment gets charged twice, and the simulator has no protection of its own. It follows the IETF `Idempotency-Key` draft:
-
-- the same key and request replays the original payment without calling the bank;
-- the same key while the first request is still running gets `409`;
-- the same key with a different request gets `422`;
-- if the first attempt was rejected or definitely not processed, the key is released so the merchant can retry;
-- if the outcome is unknown, the key stays locked and retries get `504`, so the card can't be charged twice.
-
-Requests are matched on an HMAC of the body with a per-process key, so no card data is kept.
 
 **.NET 10.** The scaffold targeted .NET 8. I moved to .NET 10 (the current LTS and the runtime I had) and updated the packages.
 
@@ -81,9 +69,9 @@ Requests are matched on an HMAC of the body with a per-process key, so no card d
 
 ## Testing
 
-- **Unit** (`PaymentGateway.Api.Tests`): validation rules, `PaymentService` with a substituted bank, `BankClient` against a mocked HTTP handler including every failure type, idempotency including concurrent requests.
+- **Unit** (`PaymentGateway.Api.Tests`): validation rules, `PaymentService` with a substituted bank, `BankClient` against a mocked HTTP handler including every failure type.
 - **Integration** (same project): the full HTTP pipeline in-process with `WebApplicationFactory`, covering status codes, error shapes, headers, and that card data never appears in responses or logs.
-- **End-to-end** (`PaymentGateway.Api.EndToEndTests`): the real gateway against the real simulator, started by Testcontainers with the same image and the unchanged `imposters/` as `docker-compose.yml`. It covers every card ending, retrieval, the `503` case, and uses the simulator's request count to check that rejected and replayed payments never reach the bank.
+- **End-to-end** (`PaymentGateway.Api.EndToEndTests`): the real gateway against the real simulator, started by Testcontainers with the same image and the unchanged `imposters/` as `docker-compose.yml`. It covers every card ending, retrieval, the `503` case, and uses the simulator's request count to check that rejected payments never reach the bank.
 
 The `504` path can't be triggered through this simulator, so it is covered by unit and integration tests only. The brief mentions that Mountebank is usually configured through its API in test setup; I kept the provided imposter file unchanged, as the scaffold asks.
 
@@ -91,9 +79,9 @@ I didn't include a load test. Against a local Mountebank it would mostly measure
 
 ## What production would need next
 
-- **Merchant authentication.** Payments and idempotency keys should be scoped to the merchant that created them; right now any caller can read any payment by id.
+- **Idempotency.** An `Idempotency-Key` header so a merchant retrying after a network error can't charge the shopper twice. I left it out to keep to the brief's functional requirements. The design: the same key and request replays the original payment without calling the bank; a concurrent request with the same key gets `409`; the same key with a different request gets `422`; the key is released if the payment was rejected or definitely not processed, and stays locked if the outcome is unknown. Keys are scoped per merchant, expire after about 24 hours, and live in a shared store such as Redis. Requests are matched on an HMAC of the body so no card data is kept.
+- **Merchant authentication.** Payments should be scoped to the merchant that created them; right now any caller can read any payment by id.
 - **Persistence.** A real database, recording the payment as pending before calling the bank so a timeout leaves a record that a reconciliation job can resolve with the bank.
-- **Idempotency store.** Shared (e.g. Redis) so it works across instances, scoped per merchant, and with keys that expire (24 hours is common).
 - **HTTPS only.** Reject plain HTTP rather than redirect: a redirect happens after the card data has already been sent in clear.
 - **Card data.** Tokenization, so most of the system never handles card numbers.
 - **Observability.** Metrics on authorization rate, bank latency and error rate, and tracing across the bank call.

@@ -15,8 +15,6 @@ namespace PaymentGateway.Api.Controllers;
 [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
 public class PaymentsController : ControllerBase
 {
-    private const int MaxIdempotencyKeyLength = 255;
-
     private readonly IPaymentService _paymentService;
 
     public PaymentsController(IPaymentService paymentService)
@@ -41,41 +39,20 @@ public class PaymentsController : ControllerBase
 
     [HttpPost]
     [ProducesResponseType<PaymentResponse>(StatusCodes.Status201Created)]
-    [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
-    [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
     [ProducesResponseType<RejectedPaymentResponse>(StatusCodes.Status422UnprocessableEntity)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status502BadGateway)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status504GatewayTimeout)]
-    public async Task<ActionResult<PaymentResponse>> PostPayment(
-        PostPaymentRequest request,
-        [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey,
-        CancellationToken cancellationToken)
+    public async Task<ActionResult<PaymentResponse>> PostPayment(PostPaymentRequest request, CancellationToken cancellationToken)
     {
-        if (idempotencyKey?.Length > MaxIdempotencyKeyLength)
-        {
-            return Problem(
-                statusCode: StatusCodes.Status400BadRequest,
-                title: "Invalid idempotency key",
-                detail: $"The Idempotency-Key header must be at most {MaxIdempotencyKeyLength} characters.");
-        }
-
         try
         {
-            var payment = await _paymentService.ProcessPaymentAsync(request, idempotencyKey, cancellationToken);
+            var payment = await _paymentService.ProcessPaymentAsync(request, cancellationToken);
 
             return CreatedAtAction(nameof(GetPayment), new { id = payment.Id }, PaymentResponse.FromPayment(payment));
         }
         catch (ValidationException exception)
         {
             return UnprocessableEntity(new RejectedPaymentResponse { Errors = new ValidationResult(exception.Errors).ToDictionary() });
-        }
-        catch (IdempotencyKeyInUseException exception)
-        {
-            return Problem(statusCode: StatusCodes.Status409Conflict, title: "Payment already in progress", detail: exception.Message);
-        }
-        catch (IdempotencyKeyReusedException exception)
-        {
-            return Problem(statusCode: StatusCodes.Status422UnprocessableEntity, title: "Idempotency key reused", detail: exception.Message);
         }
         catch (AcquiringBankException exception) when (exception.OutcomeUnknown)
         {

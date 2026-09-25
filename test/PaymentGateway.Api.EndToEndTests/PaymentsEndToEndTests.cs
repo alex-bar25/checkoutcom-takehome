@@ -66,30 +66,6 @@ public class PaymentsEndToEndTests : IClassFixture<BankSimulatorFixture>
         Assert.Equal(bankRequestsBefore, await _fixture.GetBankRequestCountAsync());
     }
 
-    [Fact]
-    public async Task ReplaysIdempotentPaymentWithoutCallingBankAgain()
-    {
-        var bankRequestsBefore = await _fixture.GetBankRequestCountAsync();
-        var idempotencyKey = Guid.NewGuid().ToString();
-
-        var first = await PostWithIdempotencyKeyAsync(Payment("2222405343248877"), idempotencyKey);
-        var replayed = await PostWithIdempotencyKeyAsync(Payment("2222405343248877"), idempotencyKey);
-
-        Assert.Equal(HttpStatusCode.Created, replayed.StatusCode);
-        Assert.Equal(
-            (await first.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetGuid(),
-            (await replayed.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetGuid());
-        Assert.Equal(bankRequestsBefore + 1, await _fixture.GetBankRequestCountAsync());
-    }
-
-    private Task<HttpResponseMessage> PostWithIdempotencyKeyAsync(object payment, string idempotencyKey)
-    {
-        var request = new HttpRequestMessage(HttpMethod.Post, "/api/payments") { Content = JsonContent.Create(payment) };
-        request.Headers.Add("Idempotency-Key", idempotencyKey);
-
-        return _fixture.Gateway.SendAsync(request);
-    }
-
     private static object Payment(string cardNumber, string currency = "GBP") => new
     {
         cardNumber,

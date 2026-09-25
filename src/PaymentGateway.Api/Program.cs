@@ -1,5 +1,9 @@
 using System.Text.Json.Serialization;
 
+using Microsoft.Extensions.Http.Resilience;
+using Microsoft.Extensions.Options;
+
+using PaymentGateway.Api.Configuration;
 using PaymentGateway.Api.Services;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -13,6 +17,23 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
 builder.Services.AddSingleton<IPaymentsRepository, PaymentsRepository>();
+
+builder.Services.AddOptions<BankOptions>()
+    .BindConfiguration(BankOptions.SectionName)
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
+
+builder.Services.AddHttpClient<IBankClient, BankClient>((serviceProvider, client) =>
+        client.BaseAddress = serviceProvider.GetRequiredService<IOptions<BankOptions>>().Value.BaseAddress)
+    .AddStandardResilienceHandler()
+    .Configure((HttpStandardResilienceOptions options, IServiceProvider serviceProvider) =>
+    {
+        var timeout = serviceProvider.GetRequiredService<IOptions<BankOptions>>().Value.Timeout;
+
+        options.Retry.DisableForUnsafeHttpMethods();
+        options.AttemptTimeout.Timeout = timeout;
+        options.TotalRequestTimeout.Timeout = timeout;
+    });
 
 var app = builder.Build();
 

@@ -6,10 +6,10 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 
 using PaymentGateway.Api.Enums;
-using PaymentGateway.Api.Models;
+using PaymentGateway.Api.Models.Domain;
 using PaymentGateway.Api.Services;
 
-namespace PaymentGateway.Api.Tests;
+namespace PaymentGateway.Api.Tests.Controllers;
 
 public class PaymentsControllerTests : IClassFixture<WebApplicationFactory<Program>>
 {

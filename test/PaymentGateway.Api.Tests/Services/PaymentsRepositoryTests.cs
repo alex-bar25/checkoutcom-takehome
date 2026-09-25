@@ -1,8 +1,8 @@
 using PaymentGateway.Api.Enums;
-using PaymentGateway.Api.Models;
+using PaymentGateway.Api.Models.Domain;
 using PaymentGateway.Api.Services;
 
-namespace PaymentGateway.Api.Tests;
+namespace PaymentGateway.Api.Tests.Services;
 
 public class PaymentsRepositoryTests
 {

@@ -1,6 +1,6 @@
 using PaymentGateway.Api.Enums;
 
-namespace PaymentGateway.Api.Models;
+namespace PaymentGateway.Api.Models.Domain;
 
 /// <summary>
 /// A payment as stored by the gateway. Deliberately holds only the last four card digits:

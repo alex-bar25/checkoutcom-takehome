@@ -4,10 +4,18 @@ An ASP.NET Core API that lets a merchant process a card payment through an acqui
 
 ## Running it
 
-Requirements: .NET 10 SDK and Docker.
+Everything in Docker:
 
 ```bash
-docker compose up -d                              # bank simulator on :8080
+docker compose up --build                         # gateway on http://localhost:5080, bank simulator on :8080
+```
+
+The gateway image is built from `src/PaymentGateway.Api/Dockerfile`: a multi-stage build that publishes with the .NET SDK image and runs on the smaller ASP.NET runtime image as a non-root user. It runs in the Production environment and finds the simulator through configuration (`Bank__BaseAddress`). It serves plain HTTP inside the container; in a real deployment TLS would be terminated in front of it by the load balancer.
+
+For development (requires the .NET 10 SDK):
+
+```bash
+docker compose up -d bank_simulator               # bank simulator only
 dotnet run --project src/PaymentGateway.Api       # API on https://localhost:7092, Swagger at /swagger
 ```
 

@@ -37,8 +37,15 @@ public class BankClient : IBankClient
                 throw new AcquiringBankException($"Acquiring bank responded with status code {(int)response.StatusCode}.", outcomeUnknown: false);
             }
 
-            return await response.Content.ReadFromJsonAsync<BankPaymentResponse>(SerializerOptions, cancellationToken)
-                ?? throw new AcquiringBankException("Acquiring bank returned an empty response.", outcomeUnknown: true);
+            var bankResponse = await response.Content.ReadFromJsonAsync<BankPaymentResponse>(SerializerOptions, cancellationToken);
+
+            if (bankResponse is null)
+            {
+                _logger.LogWarning("Acquiring bank returned an empty response");
+                throw new AcquiringBankException("Acquiring bank returned an empty response.", outcomeUnknown: true);
+            }
+
+            return bankResponse;
         }
         catch (Exception exception) when (IsBankFailure(exception, cancellationToken))
         {

@@ -55,6 +55,7 @@ builder.Services.AddHttpClient<IBankClient, BankClient>((serviceProvider, client
         options.Retry.DisableForUnsafeHttpMethods();
         options.AttemptTimeout.Timeout = timeout;
         options.TotalRequestTimeout.Timeout = timeout;
+        options.CircuitBreaker.SamplingDuration = timeout * 2;
     });
 
 var app = builder.Build();
@@ -67,8 +68,6 @@ if (app.Environment.IsDevelopment())
     app.UseSwagger();
     app.UseSwaggerUI();
 }
-
-app.UseHttpsRedirection();
 
 app.UseAuthorization();
 

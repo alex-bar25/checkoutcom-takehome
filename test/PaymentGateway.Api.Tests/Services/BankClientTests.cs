@@ -6,6 +6,9 @@ using PaymentGateway.Api.Exceptions;
 using PaymentGateway.Api.Models.Requests;
 using PaymentGateway.Api.Services;
 
+using Polly.CircuitBreaker;
+using Polly.Timeout;
+
 using RichardSzalay.MockHttp;
 
 namespace PaymentGateway.Api.Tests.Services;
@@ -78,6 +81,7 @@ public class BankClientTests
     [InlineData("")]
     [InlineData("not json")]
     [InlineData("""{"authorization_code":"abc"}""")]
+    [InlineData("null")]
     public async Task ThrowsOutcomeUnknownWhenBankResponseIsMalformed(string json)
     {
         _bank.When(HttpMethod.Post, BankUrl).Respond("application/json", json);
@@ -109,6 +113,24 @@ public class BankClientTests
     public async Task ThrowsOutcomeUnknownWhenBankTimesOut()
     {
         _bank.When(HttpMethod.Post, BankUrl).Throw(new TaskCanceledException("The request timed out"));
+
+        var exception = await Assert.ThrowsAsync<AcquiringBankException>(() => CreateClient().AuthorizeAsync(Request, CancellationToken.None));
+        Assert.True(exception.OutcomeUnknown);
+    }
+
+    [Fact]
+    public async Task ThrowsNotProcessedWhenCircuitBreakerIsOpen()
+    {
+        _bank.When(HttpMethod.Post, BankUrl).Throw(new BrokenCircuitException());
+
+        var exception = await Assert.ThrowsAsync<AcquiringBankException>(() => CreateClient().AuthorizeAsync(Request, CancellationToken.None));
+        Assert.False(exception.OutcomeUnknown);
+    }
+
+    [Fact]
+    public async Task ThrowsOutcomeUnknownWhenResilienceTimeoutExpires()
+    {
+        _bank.When(HttpMethod.Post, BankUrl).Throw(new TimeoutRejectedException());
 
         var exception = await Assert.ThrowsAsync<AcquiringBankException>(() => CreateClient().AuthorizeAsync(Request, CancellationToken.None));
         Assert.True(exception.OutcomeUnknown);

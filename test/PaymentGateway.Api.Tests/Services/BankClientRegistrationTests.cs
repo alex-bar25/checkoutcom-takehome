@@ -57,6 +57,17 @@ public class BankClientRegistrationTests
     }
 
     [Fact]
+    public void StartsWithBankTimeoutLongerThanDefaultCircuitBreakerWindow()
+    {
+        using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+            builder.UseSetting("Bank:Timeout", "00:00:30"));
+
+        using var client = factory.CreateClient();
+
+        Assert.NotNull(factory.Services.GetRequiredService<IBankClient>());
+    }
+
+    [Fact]
     public void FailsOnStartupWhenBankAddressIsMissing()
     {
         using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>

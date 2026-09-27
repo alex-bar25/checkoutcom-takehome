@@ -31,7 +31,7 @@ public class PaymentService : IPaymentService
 
         if (!validationResult.IsValid)
         {
-            _logger.LogInformation("Payment rejected due to invalid fields {InvalidFields}", validationResult.ToDictionary().Keys);
+            _logger.LogInformation("Payment rejected due to invalid fields {InvalidFields}", string.Join(", ", validationResult.ToDictionary().Keys));
             throw new ValidationException(validationResult.Errors);
         }
 

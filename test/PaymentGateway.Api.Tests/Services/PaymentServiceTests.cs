@@ -1,6 +1,7 @@
 using FluentValidation;
 
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Logging.Testing;
 using Microsoft.Extensions.Time.Testing;
 
 using NSubstitute;
@@ -97,6 +98,18 @@ public class PaymentServiceTests
 
         Assert.Equal(["CardNumber", "Currency"], exception.Errors.Select(error => error.PropertyName).Order());
         await _bankClient.DidNotReceiveWithAnyArgs().AuthorizeAsync(default!, default);
+    }
+
+    [Fact]
+    public async Task LogsNamesOfInvalidFieldsWhenRejecting()
+    {
+        var logger = new FakeLogger<PaymentService>();
+        var service = new PaymentService(new PostPaymentRequestValidator(new FakeTimeProvider(Now)), _bankClient, _repository, logger);
+
+        await Assert.ThrowsAsync<ValidationException>(() =>
+            service.ProcessPaymentAsync(ValidRequest with { CardNumber = "1234", Currency = "JPY" }, CancellationToken.None));
+
+        Assert.Equal("CardNumber, Currency", logger.LatestRecord.GetStructuredStateValue("InvalidFields"));
     }
 
     [Fact]

@@ -56,7 +56,7 @@ A payment response contains `id`, `status`, `cardNumberLastFour`, `expiryMonth`,
 
 **Structure.** Controller (HTTP only) → `PaymentService` (validate, call the bank, store) → `BankClient` and `PaymentsRepository`. The service throws exceptions for rejected payments and bank failures, and `PaymentExceptionHandler` (an `IExceptionHandler`) turns them into `422`, `502` and `504` responses. Folders follow the scaffold's layout. There is no mediator or mapping library; two endpoints don't need them.
 
-**Validation.** FluentValidation. Request fields are nullable so a missing value can be told apart from `0`, and JSON is parsed strictly (`"1050"` is not a number, `1234` is not a card number). Malformed JSON gets the same `Rejected` response as a failed rule, so a merchant only has to handle one shape. `422` rather than `400` because the request is well-formed HTTP but the payment data is invalid, which is also what Checkout.com's own API does.
+**Validation.** FluentValidation. Request fields are nullable so a missing value can be told apart from `0`, and JSON is parsed strictly (`"1050"` is not a number, `1234` is not a card number). Malformed JSON gets the same `Rejected` response as a failed rule, so invalid payment data always comes back in one shape. `422` rather than `400` because the request is well-formed HTTP but the payment data is invalid, which is also what Checkout.com's own API does.
 
 **Card data.** Only the last four digits are stored, as a string so leading zeros survive. The full card number and CVV are never stored, logged or returned, and tests check responses and logs for them. Payment responses are sent with `Cache-Control: no-store`.
 
@@ -69,8 +69,8 @@ A payment response contains `id`, `status`, `cardNumberLastFour`, `expiryMonth`,
 ## Observability
 
 - **Health.** `GET /health` returns `Healthy` for a load balancer or orchestrator. It only checks the gateway itself, not the bank: if the bank is down the gateway still answers (with `502`), and restarting it wouldn't help.
-- **Logs.** Each processed payment is logged with its id and status, rejections with the names of the invalid fields, and bank failures with the status code and whether the outcome is unknown. .NET also logs every call to the bank with its duration. The card number and CVV are never logged, and a test checks this.
-- **Correlation.** In the Docker image (Production) logs are JSON and every line carries the request's `TraceId`. Error responses include the same `traceId`, so a merchant reporting a failed payment can be traced to that request's log lines.
+- **Logs.** Each processed payment is logged with its id and status, rejections with the names of the invalid fields, and bank failures with either the bank's status code or whether the outcome is unknown. .NET also logs every call to the bank with its duration. The card number and CVV are never logged, and a test checks this.
+- **Correlation.** In the Docker image (Production) logs are JSON and every line carries the request's `TraceId`. `404`, `502` and `504` responses include a `traceId` (`00-<TraceId>-<SpanId>-00`) containing that `TraceId`, so a merchant reporting a failed payment can be traced to that request's log lines.
 - **What I'd monitor.** Authorization rate (a sudden drop points at the bank or a fraud rule), `502`/`504` rate and bank latency (p95/p99), and rejection rate (a spike usually means a merchant's integration broke). The next step would be OpenTelemetry metrics and traces exported to something like Prometheus or Datadog.
 
 ## Assumptions
@@ -78,15 +78,15 @@ A payment response contains `id`, `status`, `cardNumberLastFour`, `expiryMonth`,
 - Amount must be greater than zero. The brief only says it must be an integer.
 - A card is valid until the end of its expiry month, compared in UTC. There is no upper limit on the expiry year.
 - Supported currencies are GBP, USD and EUR, upper case only.
-- No Luhn check on the card number. The brief doesn't ask for one and the simulator's test cards wouldn't pass it.
+- No Luhn check on the card number. The brief doesn't ask for one, and it would reject most of the simulator's test scenarios, since only one ending digit per card number passes it.
 - Declined payments are stored and retrievable. Rejected payments are not stored and have no id.
 - A `400` from the bank means the gateway sent a bad request. It is treated as "not processed" (`502`); it can't happen while validation matches the bank's rules.
 
 ## Testing
 
-- **Unit** (`PaymentGateway.Api.Tests`): validation rules, `PaymentService` with a substituted bank, `BankClient` against a mocked HTTP handler including every failure type.
+- **Unit** (`PaymentGateway.Api.Tests`): validation rules, `PaymentService` with a substituted bank, `BankClient` against a mocked HTTP handler for each kind of failure: error statuses, refused and dropped connections, timeouts, an open circuit breaker and malformed responses.
 - **Integration** (same project): the full HTTP pipeline in-process with `WebApplicationFactory`, covering status codes, error shapes, headers, and that card data never appears in responses or logs.
-- **End-to-end** (`PaymentGateway.Api.EndToEndTests`): the real gateway against the real simulator, started by Testcontainers with the same image and the unchanged `imposters/` as `docker-compose.yml`. It covers every card ending, retrieval, the `503` case, and uses the simulator's request count to check that rejected payments never reach the bank.
+- **End-to-end** (`PaymentGateway.Api.EndToEndTests`): the gateway, running in-process with its real bank client, against the real simulator, which Testcontainers starts from the same image and unchanged `imposters/` as `docker-compose.yml`. It covers every card ending, retrieval, the `503` case, and uses the simulator's request count to check that rejected payments never reach the bank.
 
 The `504` path can't be triggered through this simulator, so it is covered by unit and integration tests only. The brief mentions that Mountebank is usually configured through its API in test setup; I kept the provided imposter file unchanged, as the scaffold asks.
 
@@ -97,6 +97,6 @@ I didn't include a load test. Against a local Mountebank it would mostly measure
 - **Idempotency.** An `Idempotency-Key` header so a merchant retrying after a network error can't charge the shopper twice. I left it out to keep to the brief's functional requirements. The design: the same key and request replays the original payment without calling the bank; a concurrent request with the same key gets `409`; the same key with a different request gets `422`; the key is released if the payment was rejected or definitely not processed, and stays locked if the outcome is unknown. Keys are scoped per merchant, expire after about 24 hours, and live in a shared store such as Redis. Requests are matched on an HMAC of the body so no card data is kept.
 - **Merchant authentication.** Payments should be scoped to the merchant that created them; right now any caller can read any payment by id.
 - **Persistence.** A real database, recording the payment as pending before calling the bank so a timeout leaves a record that a reconciliation job can resolve with the bank.
-- **HTTPS only.** Reject plain HTTP rather than redirect: a redirect happens after the card data has already been sent in clear.
+- **HTTPS only.** TLS at the load balancer, rejecting plain HTTP rather than redirecting it: a redirect happens after the card data has already been sent in clear, which is also why the API doesn't redirect.
 - **Card data.** Tokenization, so most of the system never handles card numbers.
 - **Rate limiting** per merchant.

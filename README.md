@@ -66,6 +66,13 @@ A payment response contains `id`, `status`, `cardNumberLastFour`, `expiryMonth`,
 
 **.NET 10.** The scaffold targeted .NET 8. I moved to .NET 10 (the current LTS and the runtime I had) and updated the packages.
 
+## Observability
+
+- **Health.** `GET /health` returns `Healthy` for a load balancer or orchestrator. It only checks the gateway itself, not the bank: if the bank is down the gateway still answers (with `502`), and restarting it wouldn't help.
+- **Logs.** Each processed payment is logged with its id and status, rejections with the names of the invalid fields, and bank failures with the status code and whether the outcome is unknown. .NET also logs every call to the bank with its duration. The card number and CVV are never logged, and a test checks this.
+- **Correlation.** In the Docker image (Production) logs are JSON and every line carries the request's `TraceId`. Error responses include the same `traceId`, so a merchant reporting a failed payment can be traced to that request's log lines.
+- **What I'd monitor.** Authorization rate (a sudden drop points at the bank or a fraud rule), `502`/`504` rate and bank latency (p95/p99), and rejection rate (a spike usually means a merchant's integration broke). The next step would be OpenTelemetry metrics and traces exported to something like Prometheus or Datadog.
+
 ## Assumptions
 
 - Amount must be greater than zero. The brief only says it must be an integer.
@@ -92,5 +99,4 @@ I didn't include a load test. Against a local Mountebank it would mostly measure
 - **Persistence.** A real database, recording the payment as pending before calling the bank so a timeout leaves a record that a reconciliation job can resolve with the bank.
 - **HTTPS only.** Reject plain HTTP rather than redirect: a redirect happens after the card data has already been sent in clear.
 - **Card data.** Tokenization, so most of the system never handles card numbers.
-- **Observability.** Metrics on authorization rate, bank latency and error rate, and tracing across the bank call.
 - **Rate limiting** per merchant.

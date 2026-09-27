@@ -33,6 +33,8 @@ builder.Services.AddExceptionHandler<PaymentExceptionHandler>();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
+builder.Services.AddHealthChecks();
+
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<IValidator<PostPaymentRequest>, PostPaymentRequestValidator>();
 builder.Services.AddSingleton<IPaymentsRepository, PaymentsRepository>();
@@ -71,5 +73,6 @@ app.UseHttpsRedirection();
 app.UseAuthorization();
 
 app.MapControllers();
+app.MapHealthChecks("/health");
 
 app.Run();

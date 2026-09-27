@@ -1,9 +1,5 @@
-using FluentValidation;
-using FluentValidation.Results;
-
 using Microsoft.AspNetCore.Mvc;
 
-using PaymentGateway.Api.Exceptions;
 using PaymentGateway.Api.Models.Requests;
 using PaymentGateway.Api.Models.Responses;
 using PaymentGateway.Api.Services;
@@ -44,29 +40,8 @@ public class PaymentsController : ControllerBase
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status504GatewayTimeout)]
     public async Task<ActionResult<PaymentResponse>> PostPayment(PostPaymentRequest request, CancellationToken cancellationToken)
     {
-        try
-        {
-            var payment = await _paymentService.ProcessPaymentAsync(request, cancellationToken);
+        var payment = await _paymentService.ProcessPaymentAsync(request, cancellationToken);
 
-            return CreatedAtAction(nameof(GetPayment), new { id = payment.Id }, PaymentResponse.FromPayment(payment));
-        }
-        catch (ValidationException exception)
-        {
-            return UnprocessableEntity(new RejectedPaymentResponse { Errors = new ValidationResult(exception.Errors).ToDictionary() });
-        }
-        catch (AcquiringBankException exception) when (exception.OutcomeUnknown)
-        {
-            return Problem(
-                statusCode: StatusCodes.Status504GatewayTimeout,
-                title: "Acquiring bank did not respond in time",
-                detail: "The payment outcome is unknown. Do not retry this payment without first confirming its status.");
-        }
-        catch (AcquiringBankException)
-        {
-            return Problem(
-                statusCode: StatusCodes.Status502BadGateway,
-                title: "Acquiring bank unavailable",
-                detail: "The payment was not processed. It is safe to retry.");
-        }
+        return CreatedAtAction(nameof(GetPayment), new { id = payment.Id }, PaymentResponse.FromPayment(payment));
     }
 }

@@ -46,7 +46,7 @@ A payment response contains `id`, `status`, `cardNumberLastFour`, `expiryMonth`,
 
 ## Design decisions
 
-**Structure.** Controller (HTTP only) → `PaymentService` (validate, call the bank, store) → `BankClient` and `PaymentsRepository`. Folders follow the scaffold's layout. There is no mediator or mapping library; two endpoints don't need them.
+**Structure.** Controller (HTTP only) → `PaymentService` (validate, call the bank, store) → `BankClient` and `PaymentsRepository`. The service throws exceptions for rejected payments and bank failures, and `PaymentExceptionHandler` (an `IExceptionHandler`) turns them into `422`, `502` and `504` responses. Folders follow the scaffold's layout. There is no mediator or mapping library; two endpoints don't need them.
 
 **Validation.** FluentValidation. Request fields are nullable so a missing value can be told apart from `0`, and JSON is parsed strictly (`"1050"` is not a number, `1234` is not a card number). Malformed JSON gets the same `Rejected` response as a failed rule, so a merchant only has to handle one shape. `422` rather than `400` because the request is well-formed HTTP but the payment data is invalid, which is also what Checkout.com's own API does.
 

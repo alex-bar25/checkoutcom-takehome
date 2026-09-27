@@ -8,6 +8,7 @@ using Microsoft.Extensions.Http.Resilience;
 using Microsoft.Extensions.Options;
 
 using PaymentGateway.Api.Configuration;
+using PaymentGateway.Api.Exceptions;
 using PaymentGateway.Api.Models.Requests;
 using PaymentGateway.Api.Models.Responses;
 using PaymentGateway.Api.Services;
@@ -27,6 +28,7 @@ builder.Services.AddControllers()
     .ConfigureApiBehaviorOptions(options => options.InvalidModelStateResponseFactory = context =>
         new UnprocessableEntityObjectResult(RejectedPaymentResponse.FromModelState(context.ModelState)));
 builder.Services.AddProblemDetails();
+builder.Services.AddExceptionHandler<PaymentExceptionHandler>();
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();

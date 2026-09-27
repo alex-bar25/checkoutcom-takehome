@@ -236,10 +236,12 @@ public class PaymentsControllerTests : IClassFixture<WebApplicationFactory<Progr
         // Act
         var processed = await client.PostAsJsonAsync("/api/payments", ValidRequest());
         var retrieved = await client.GetAsync(processed.Headers.Location);
+        var rejected = await client.PostAsJsonAsync("/api/payments", ValidRequest(currency: "JPY"));
 
         // Assert
         Assert.True(processed.Headers.CacheControl?.NoStore);
         Assert.True(retrieved.Headers.CacheControl?.NoStore);
+        Assert.True(rejected.Headers.CacheControl?.NoStore);
     }
 
     private static int NextYear => DateTime.UtcNow.Year + 1;
